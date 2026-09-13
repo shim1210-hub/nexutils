@@ -903,7 +903,6 @@ textarea:focus {
   min-height: 220px;
 }
 
-.json-workspace,
 .editor-workspace {
   grid-template-columns: 1fr;
 }
@@ -951,6 +950,21 @@ textarea:focus {
 .status-text {
   color: var(--success);
   font-weight: 700;
+}
+
+.status-success {
+  color: var(--success) !important;
+  border-color: color-mix(in srgb, var(--success), var(--line) 55%) !important;
+}
+
+.status-error,
+.error-text {
+  color: #c92a2a !important;
+}
+
+.horizontal-workspace .result-panel textarea {
+  overflow-x: auto;
+  white-space: pre;
 }
 
 .qr-preview img {
@@ -1046,6 +1060,18 @@ textarea:focus {
 
   .header-search {
     width: 100%;
+  }
+
+  .site-header {
+    grid-template-columns: 1fr;
+  }
+
+  .brand,
+  .header-actions,
+  .main-nav,
+  .control-bar > * {
+    min-width: 0;
+    max-width: 100%;
   }
 
   .hero {

@@ -20,7 +20,7 @@ export default function HorizontalViewTool() {
   function convertToHorizontal() {
     const convertedValue = buildHorizontalValue(input);
     setOutput(convertedValue ? `(${convertedValue})` : "");
-    setStatus("변환이 완료됐어요.");
+    setStatus(convertedValue ? "변환이 완료됐어요." : "변환할 내용을 입력해주세요.");
   }
 
   async function copyOutput() {
@@ -28,8 +28,12 @@ export default function HorizontalViewTool() {
       setStatus("복사할 결과가 없습니다.");
       return;
     }
-    await navigator.clipboard.writeText(output);
-    setStatus("복사됐어요.");
+    try {
+      await navigator.clipboard.writeText(output);
+      setStatus("복사됐어요.");
+    } catch {
+      setStatus("클립보드 복사에 실패했습니다.");
+    }
     window.setTimeout(() => setStatus(""), 1800);
   }
 
@@ -54,14 +58,14 @@ export default function HorizontalViewTool() {
       </label>
       <label className="editor-panel result-panel">
         <span>결과</span>
-        <textarea readOnly spellCheck={false} value={output} />
+        <textarea aria-label="가로 변환 결과" placeholder="변환 결과가 여기에 표시됩니다." readOnly spellCheck={false} value={output} wrap="off" />
       </label>
       <div className="tool-actions">
         <button className="tertiary-button" onClick={reset} type="button">초기화</button>
         <button onClick={convertToHorizontal} type="button">변환</button>
         <button className="secondary-action" onClick={copyOutput} type="button">결과 복사</button>
       </div>
-      {status ? <p className="status-text">{status}</p> : null}
+      {status ? <p className={`status-text ${status.includes("입력") || status.includes("실패") || status.includes("없습니다") ? "error-text" : ""}`} role="status">{status}</p> : null}
     </div>
   );
 }

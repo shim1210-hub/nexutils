@@ -28,21 +28,44 @@ function toSnake(value: string) { return value.replace(/([a-z0-9])([A-Z])/g, "$1
 function toCamel(value: string) { return value.toLowerCase().split(/[_\s-]+/).map((word, index) => (index === 0 ? word : `${word.charAt(0).toUpperCase()}${word.slice(1)}`)).join(""); }
 function formatSql(sql: string) { return sql.replace(/\s+/g, " ").replace(/\b(select|from|where|group by|order by|having|inner join|left join|right join|join|values|set)\b/gi, "\n$1").replace(/,/g, ",\n  ").trim(); }
 function csvToRows(input: string) {
-  const rows = input.split(/\r?\n/).filter((line) => line.trim());
-  const headers = rows[0]?.split(",").map((header) => header.trim()) ?? [];
-  return rows.slice(1).map((row) => Object.fromEntries(headers.map((header, index) => [header, row.split(",")[index]?.trim() ?? ""])));
+  const parsed: string[][] = [[]];
+  let quoted = false;
+  for (let index = 0; index < input.length; index += 1) {
+    const character = input[index];
+    if (character === '"' && quoted && input[index + 1] === '"') {
+      const row = parsed.at(-1)!;
+      row[row.length - 1] = (row[row.length - 1] ?? "") + '"';
+      index += 1;
+      continue;
+    }
+    if (character === '"') { quoted = !quoted; continue; }
+    if (character === "," && !quoted) { parsed.at(-1)!.push(""); continue; }
+    if ((character === "\n" || character === "\r") && !quoted) {
+      if (character === "\r" && input[index + 1] === "\n") index += 1;
+      parsed.push([]);
+      continue;
+    }
+    const row = parsed.at(-1)!;
+    row[row.length - 1] = (row[row.length - 1] ?? "") + character;
+  }
+  const rows = parsed.filter((row) => row.some((cell) => cell.trim()));
+  const headers = (rows[0] ?? []).map((header) => header.trim());
+  return rows.slice(1).map((row) => Object.fromEntries(headers.map((header, index) => [header, row[index]?.trim() ?? ""])));
 }
 function rowsToInsert(tableName: string, rows: Array<Record<string, unknown>>) {
+  if (!tableName.trim()) return "테이블명을 입력해주세요.";
   if (!rows.length) return "";
   const columns = Object.keys(rows[0]);
   return rows.map((row) => `INSERT INTO ${tableName} (${columns.join(", ")}) VALUES (${columns.map((column) => `'${escapeSql(String(row[column] ?? ""))}'`).join(", ")});`).join("\n");
 }
 function columnsToCreateTable(tableName: string, input: string) {
+  if (!tableName.trim()) return "테이블명을 입력해주세요.";
   const columns = input.split(/\r?\n/).filter((line) => line.trim()).map((line) => {
     const [name = "", type = "varchar(255)", nullable = "", comment = ""] = line.split(",").map((value) => value.trim());
-    return `  ${name} ${type}${nullable.toLowerCase().includes("not") ? " NOT NULL" : ""},${comment ? ` -- ${comment}` : ""}`;
+    return `  ${name} ${type}${nullable.toLowerCase().includes("not") ? " NOT NULL" : ""}${comment ? ` /* ${comment.replaceAll("*/", "* /")} */` : ""}`;
   });
-  return `CREATE TABLE ${tableName} (\n${columns.join("\n").replace(/,$/, "")}\n);`;
+  if (!columns.length) return "컬럼 정의를 입력해주세요.";
+  return `CREATE TABLE ${tableName} (\n${columns.join(",\n")}\n);`;
 }
 function convertDialect(input: string, direction: string) {
   return direction === "oracle-to-postgres"
@@ -89,10 +112,13 @@ export default function SqlDbToolsTool() {
   }
 
   async function copyOutput() {
-    await navigator.clipboard.writeText(output).catch(() => undefined);
-    setStatus("복사됐어요.");
+    if (!output) { setStatus("복사할 결과가 없습니다."); return; }
+    try { await navigator.clipboard.writeText(output); setStatus("복사됐어요."); }
+    catch { setStatus("클립보드 복사에 실패했습니다."); }
     window.setTimeout(() => setStatus(""), 1800);
   }
+
+  function reset() { setInput(""); setTableName(""); setStatus(""); }
 
   return (
     <div className="tool-form split-workspace sql-workspace">
@@ -105,8 +131,8 @@ export default function SqlDbToolsTool() {
       </div>
       <label className="editor-panel"><span>SQL Editor</span><textarea onChange={(event) => setInput(event.target.value)} spellCheck={false} value={input} /></label>
       <label className="editor-panel result-panel"><span>결과</span><textarea readOnly spellCheck={false} value={output} /></label>
-      <div className="tool-actions"><button className="secondary-action" onClick={copyOutput} type="button">결과 복사</button></div>
-      {status ? <p className="status-text">{status}</p> : null}
+      <div className="tool-actions"><button className="tertiary-button" onClick={reset} type="button">초기화</button><button className="secondary-action" onClick={copyOutput} type="button">결과 복사</button></div>
+      {status ? <p className={`status-text ${status.includes("없습니다") || status.includes("실패") ? "error-text" : ""}`} role="status">{status}</p> : null}
     </div>
   );
 }

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 
-type CodeToolMode = "jsFormatter" | "htmlFormatter" | "cssFormatter" | "xmlFormatter" | "yamlJson" | "markdown" | "regexBuilder" | "diff" | "escape" | "qr" | "color" | "httpRequest";
+type CodeToolMode = "jsFormatter" | "htmlFormatter" | "cssFormatter" | "xmlFormatter" | "yamlJson" | "markdown" | "regexBuilder" | "diff" | "escape" | "color" | "httpRequest";
 
 const codeToolOptions: Array<{ label: string; value: CodeToolMode }> = [
   { label: "JavaScript 포맷", value: "jsFormatter" },
@@ -14,15 +14,31 @@ const codeToolOptions: Array<{ label: string; value: CodeToolMode }> = [
   { label: "정규식 테스트", value: "regexBuilder" },
   { label: "Diff 비교", value: "diff" },
   { label: "Escape / Unescape", value: "escape" },
-  { label: "QR Code URL", value: "qr" },
   { label: "색상 코드 변환", value: "color" },
-  { label: "GET / POST 요청", value: "httpRequest" },
+  { label: "HTTP 요청 코드 생성", value: "httpRequest" },
 ];
 
 const sampleCode = "function hello(){const name='NexUtils';console.log(name);}";
 const sampleMarkdown = "# Title\n\n- item one\n- item two\n\n**bold text**";
 
-function simpleFormat(value: string) { return value.replace(/([{};>])/g, "$1\n").replace(/(<[^/!][^>]*>)/g, "\n$1").replace(/(<\/[^>]+>)/g, "$1\n").split(/\r?\n/).map((line) => line.trim()).filter(Boolean).join("\n"); }
+function simpleFormat(value: string) {
+  let depth = 0;
+  return value.replace(/([{};])/g, "$1\n").split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
+    if (line.startsWith("}")) depth = Math.max(0, depth - 1);
+    const formatted = `${"  ".repeat(depth)}${line}`;
+    if (line.endsWith("{") || (line.includes("{") && !line.includes("}"))) depth += 1;
+    return formatted;
+  }).join("\n");
+}
+function formatMarkup(value: string) {
+  let depth = 0;
+  return value.replace(/>\s*</g, ">\n<").split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
+    if (/^<\//.test(line)) depth = Math.max(0, depth - 1);
+    const formatted = `${"  ".repeat(depth)}${line}`;
+    if (/^<[^/!?][^>]*[^/]?>$/.test(line) && !/<\/[^>]+>$/.test(line)) depth += 1;
+    return formatted;
+  }).join("\n");
+}
 function yamlToJson(value: string) {
   const result: Record<string, string> = {};
   value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).forEach((line) => {
@@ -70,59 +86,49 @@ export default function CodeToolsTool() {
   const [requestMethod, setRequestMethod] = useState("GET");
   const [requestUrl, setRequestUrl] = useState("https://jsonplaceholder.typicode.com/posts/1");
   const [requestBody, setRequestBody] = useState('{"title":"NexUtils","body":"utility","userId":1}');
-  const [requestOutput, setRequestOutput] = useState("요청 보내기 버튼을 누르면 결과가 표시됩니다.");
   const [status, setStatus] = useState("");
 
   const output = useMemo(() => {
     try {
-      if (mode === "httpRequest") return requestOutput;
-      if (["jsFormatter", "htmlFormatter", "cssFormatter", "xmlFormatter"].includes(mode)) return simpleFormat(input);
+      if (mode === "httpRequest") {
+        if (!requestUrl.trim()) return "Request URL을 입력해주세요.";
+        const body = requestMethod === "POST" ? `,\n  headers: { "Content-Type": "application/json" },\n  body: JSON.stringify(${requestBody || "{}"})` : "";
+        return `fetch(${JSON.stringify(requestUrl.trim())}, {\n  method: ${JSON.stringify(requestMethod)}${body}\n});`;
+      }
+      if (["jsFormatter", "cssFormatter"].includes(mode)) return simpleFormat(input);
+      if (["htmlFormatter", "xmlFormatter"].includes(mode)) return formatMarkup(input);
       if (mode === "yamlJson") return yamlDirection === "json-to-yaml" ? jsonToYaml(input) : yamlToJson(input);
       if (mode === "markdown") return markdownToPreview(input);
       if (mode === "regexBuilder") return (input.match(new RegExp(regexPattern, "gm")) ?? ["매칭 결과가 없습니다."]).join("\n");
       if (mode === "diff") return diffLines(input, secondInput);
       if (mode === "escape") return escapeMode === "escape" ? encodeURIComponent(input) : decodeURIComponent(input);
-      if (mode === "qr") return `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(input)}`;
       return convertColor(input);
     } catch {
       return "입력값을 확인해주세요.";
     }
-  }, [escapeMode, input, mode, regexPattern, requestOutput, secondInput, yamlDirection]);
+  }, [escapeMode, input, mode, regexPattern, requestBody, requestMethod, requestUrl, secondInput, yamlDirection]);
 
   function handleModeChange(nextMode: CodeToolMode) {
     setMode(nextMode);
     if (nextMode === "markdown") setInput(sampleMarkdown);
     else if (nextMode === "yamlJson") setInput('{"name":"NexUtils","type":"utility"}');
     else if (nextMode === "color") setInput("#4dd7c8");
-    else if (nextMode === "qr") setInput("https://util.nexdataforge.com/");
     else if (nextMode === "httpRequest") setInput("");
     else setInput(sampleCode);
   }
 
-  async function sendRequest() {
-    setRequestOutput("요청 중...");
-    try {
-      const response = await fetch(requestUrl, {
-        body: requestMethod === "POST" ? requestBody : undefined,
-        headers: requestMethod === "POST" ? { "Content-Type": "application/json" } : undefined,
-        method: requestMethod,
-      });
-      const responseText = await response.text();
-      setRequestOutput([`Status: ${response.status} ${response.statusText}`, `Content-Type: ${response.headers.get("content-type") ?? "-"}`, "", responseText].join("\n"));
-    } catch {
-      setRequestOutput("요청에 실패했습니다. URL, CORS 정책, 네트워크 상태를 확인해주세요.");
-    }
-  }
-
   async function copyOutput() {
-    await navigator.clipboard.writeText(output).catch(() => undefined);
-    setStatus("복사됐어요.");
+    if (!output) { setStatus("복사할 결과가 없습니다."); return; }
+    try { await navigator.clipboard.writeText(output); setStatus("복사됐어요."); }
+    catch { setStatus("클립보드 복사에 실패했습니다."); }
     window.setTimeout(() => setStatus(""), 1800);
   }
 
+  function reset() { setInput(""); setSecondInput(""); setRequestUrl(""); setRequestBody(""); setStatus(""); }
+
   return (
     <div className="tool-form split-workspace code-workspace">
-      <div className="workspace-heading"><div><h2>개발 코드 도구</h2><p>코드 포맷, 변환, 비교, 요청 테스트를 기능별 작업공간에서 처리합니다.</p></div></div>
+      <div className="workspace-heading"><div><h2>개발 코드 도구</h2><p>코드 포맷, 변환, 비교와 HTTP 요청 코드 생성을 브라우저 안에서 처리합니다.</p></div></div>
       <div className="control-bar">
         <label><span>작업 선택</span><select onChange={(event) => handleModeChange(event.target.value as CodeToolMode)} value={mode}>{codeToolOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
         {mode === "yamlJson" ? <select onChange={(event) => setYamlDirection(event.target.value)} value={yamlDirection}><option value="json-to-yaml">JSON → YAML</option><option value="yaml-to-json">YAML → JSON</option></select> : null}
@@ -132,10 +138,9 @@ export default function CodeToolsTool() {
       </div>
       {mode === "httpRequest" ? <label className="editor-panel"><span>Request Body</span><textarea disabled={requestMethod === "GET"} onChange={(event) => setRequestBody(event.target.value)} spellCheck={false} value={requestMethod === "GET" ? "" : requestBody} /></label> : <label className="editor-panel"><span>입력</span><textarea onChange={(event) => setInput(event.target.value)} spellCheck={false} value={input} /></label>}
       {mode === "diff" ? <label className="editor-panel"><span>비교 대상</span><textarea onChange={(event) => setSecondInput(event.target.value)} spellCheck={false} value={secondInput} /></label> : null}
-      <label className={`editor-panel result-panel ${mode === "diff" ? "full-span" : ""}`}><span>{mode === "qr" ? "QR Code URL" : "결과"}</span><textarea readOnly spellCheck={false} value={output} /></label>
-      <div className="tool-actions">{mode === "httpRequest" ? <button onClick={sendRequest} type="button">요청 보내기</button> : null}<button className="secondary-action" onClick={copyOutput} type="button">결과 복사</button></div>
-      {mode === "qr" ? <div className="qr-preview"><img alt="생성된 QR Code" src={output} /></div> : null}
-      {status ? <p className="status-text">{status}</p> : null}
+      <label className={`editor-panel result-panel ${mode === "diff" ? "full-span" : ""}`}><span>결과</span><textarea readOnly spellCheck={false} value={output} /></label>
+      <div className="tool-actions"><button className="tertiary-button" onClick={reset} type="button">초기화</button><button className="secondary-action" onClick={copyOutput} type="button">결과 복사</button></div>
+      {status ? <p className={`status-text ${status.includes("없습니다") || status.includes("실패") ? "error-text" : ""}`} role="status">{status}</p> : null}
     </div>
   );
 }

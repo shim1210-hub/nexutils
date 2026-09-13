@@ -36,7 +36,9 @@ function textToUtf8Hex(value: string) {
 }
 
 function utf8HexToText(value: string) {
-  const bytes = value.trim().split(/[\s,]+/).filter(Boolean).map((item) => Number.parseInt(item.replace(/^0x/i, ""), 16));
+  const values = value.trim().split(/[\s,]+/).filter(Boolean).map((item) => item.replace(/^0x/i, ""));
+  if (values.some((item) => !/^[0-9a-f]{2}$/i.test(item))) throw new Error("invalid hex");
+  const bytes = values.map((item) => Number.parseInt(item, 16));
   return new TextDecoder().decode(Uint8Array.from(bytes));
 }
 
@@ -68,7 +70,7 @@ export default function StringToolsTool() {
       }
       if (mode === "compare") return input === compareInput ? "두 문자열이 같습니다." : "두 문자열이 다릅니다.";
       if (mode === "regex") return (input.match(new RegExp(regexValue, "gm")) ?? ["매칭 결과가 없습니다."]).join("\n");
-      if (mode === "replace") return input.replaceAll(findValue, replaceValue);
+      if (mode === "replace") return findValue ? input.replaceAll(findValue, replaceValue) : "찾을 값을 입력해주세요.";
       if (mode === "encoding") {
         if (encodingType === "url") return encodingDirection === "encode" ? encodeURIComponent(input) : decodeURIComponent(input);
         if (encodingType === "utf8") return encodingDirection === "encode" ? textToUtf8Hex(input) : utf8HexToText(input);
@@ -87,9 +89,26 @@ export default function StringToolsTool() {
   }, [caseMode, compareInput, encodingDirection, encodingType, findValue, input, mode, namingMode, regexValue, replaceValue, sortMode]);
 
   async function copyOutput() {
-    await navigator.clipboard.writeText(output).catch(() => undefined);
-    setStatus("복사됐어요.");
+    if (!output) {
+      setStatus("복사할 결과가 없습니다.");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(output);
+      setStatus("복사됐어요.");
+    } catch {
+      setStatus("클립보드 복사에 실패했습니다.");
+    }
     window.setTimeout(() => setStatus(""), 1800);
+  }
+
+  function reset() {
+    setInput("");
+    setCompareInput("");
+    setFindValue("");
+    setReplaceValue("");
+    setRegexValue("");
+    setStatus("");
   }
 
   return (
@@ -112,8 +131,8 @@ export default function StringToolsTool() {
       <label className="editor-panel"><span>입력</span><textarea onChange={(event) => setInput(event.target.value)} spellCheck={false} value={input} /></label>
       {mode === "compare" ? <label className="editor-panel"><span>비교 대상</span><textarea onChange={(event) => setCompareInput(event.target.value)} spellCheck={false} value={compareInput} /></label> : <label className="editor-panel result-panel"><span>결과</span><textarea readOnly spellCheck={false} value={output} /></label>}
       {mode === "compare" ? <label className="editor-panel result-panel full-span"><span>결과</span><textarea readOnly spellCheck={false} value={output} /></label> : null}
-      <div className="tool-actions"><button className="secondary-action" onClick={copyOutput} type="button">결과 복사</button></div>
-      {status ? <p className="status-text">{status}</p> : null}
+      <div className="tool-actions"><button className="tertiary-button" onClick={reset} type="button">초기화</button><button className="secondary-action" onClick={copyOutput} type="button">결과 복사</button></div>
+      {status ? <p className={`status-text ${status.includes("없습니다") || status.includes("실패") ? "error-text" : ""}`} role="status">{status}</p> : null}
     </div>
   );
 }
